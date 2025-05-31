@@ -1,54 +1,51 @@
-# iss_tracker_app.py
 import streamlit as st
 import json
-import matplotlib.pyplot as plt
+import pandas as pd
+import pydeck as pdk
 from urllib.request import urlopen
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
-import time
+from streamlit_autorefresh import st_autorefresh
 
-def get_iss_location():
+# Auto-refresh every N seconds
+interval_sec = st.slider("Refresh interval (seconds)", 5, 60, 10)
+st_autorefresh(interval=interval_sec * 1000, key="iss_refresh")
+
+st.title("🛰️ ISS Live Tracker")
+
+
+# Get current ISS position
+def get_iss_position():
     try:
         response = urlopen("http://api.open-notify.org/iss-now.json")
         data = json.loads(response.read())
-        lat = float(data['iss_position']['latitude'])
-        lon = float(data['iss_position']['longitude'])
-        timestamp = data['timestamp']
-        return lat, lon, timestamp
+        lat = float(data["iss_position"]["latitude"])
+        lon = float(data["iss_position"]["longitude"])
+        return lat, lon
     except Exception as e:
-        st.error(f"Error fetching ISS data: {e}")
-        return None, None, None
+        st.error(f"Could not fetch ISS data: {e}")
+        return None, None
 
-def plot_iss_location(lat, lon):
-    fig = plt.figure(figsize=(10, 5))
-    ax = plt.axes(projection=ccrs.PlateCarree())
-    ax.stock_img()
-    ax.coastlines()
-    ax.add_feature(cfeature.BORDERS, linestyle=':')
-    ax.plot(lon, lat, marker='o', color='red', markersize=8, transform=ccrs.PlateCarree())
-    ax.set_title('Live ISS Position')
-    return fig
 
-# --- Streamlit App ---
-st.set_page_config(page_title="ISS Tracker", layout="centered")
-st.title("🛰️ International Space Station Live Tracker")
-st.write("This app shows the live position of the ISS, updating every few seconds.")
+lat, lon = get_iss_position()
+if lat and lon:
+    df = pd.DataFrame([[lat, lon]], columns=["lat", "lon"])
 
-# Refresh interval input
-interval = st.slider("Update interval (seconds)", min_value=5, max_value=60, value=10)
-
-# Start button
-if st.button("Start Tracking"):
-    placeholder = st.empty()
-    while True:
-        lat, lon, timestamp = get_iss_location()
-        if lat is not None and lon is not None:
-            with placeholder.container():
-                st.markdown(f"**Last updated**: {time.ctime(timestamp)}")
-                st.markdown(f"**Latitude**: `{lat}`  |  **Longitude**: `{lon}`")
-                fig = plot_iss_location(lat, lon)
-                st.pyplot(fig)
-        time.sleep(interval)
-        # required to break loop with rerun (e.g., manual stop or refresh)
-        if st.session_state.get("stop", False):
-            break
+    # Map using pydeck
+    st.pydeck_chart(pdk.Deck(
+        map_style='mapbox://styles/mapbox/dark-v11',
+        initial_view_state=pdk.ViewState(
+            latitude=lat,
+            longitude=lon,
+            zoom=1,
+            pitch=0,
+        ),
+        layers=[
+            pdk.Layer(
+                'ScatterplotLayer',
+                data=df,
+                get_position='[lon, lat]',
+                get_color='[255, 0, 0, 160]',
+                get_radius=100000,
+            ),
+        ],
+    ))
+    st.write(f"📍 Current ISS Coordinates:\n- **Latitude**: `{lat}`\n- **Longitude**: `{lon}`")
