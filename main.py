@@ -1,46 +1,54 @@
-import json  # that's for reading info on ISS
-import time  # that's for reducing polling
-import matplotlib.pyplot as plt  # for visualisation
-from urllib.request import urlopen  # for fetching ISS info
-import cartopy.crs as ccrs  # for mapping
+# iss_tracker_app.py
+import streamlit as st
+import json
+import matplotlib.pyplot as plt
+from urllib.request import urlopen
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
+import time
 
-def draw_iss(doblit=True):
-    # setting the environment where there's going to be mapping
-    # setting the extents of the coordinate mapping
-    # this code shows the map of the Earth on the grid
-    fig, _ = plt.subplots(1, 1)
+def get_iss_location():
+    try:
+        response = urlopen("http://api.open-notify.org/iss-now.json")
+        data = json.loads(response.read())
+        lat = float(data['iss_position']['latitude'])
+        lon = float(data['iss_position']['longitude'])
+        timestamp = data['timestamp']
+        return lat, lon, timestamp
+    except Exception as e:
+        st.error(f"Error fetching ISS data: {e}")
+        return None, None, None
+
+def plot_iss_location(lat, lon):
+    fig = plt.figure(figsize=(10, 5))
     ax = plt.axes(projection=ccrs.PlateCarree())
     ax.stock_img()
-    if doblit:
-        background = fig.canvas.copy_from_bbox(ax.bbox)  # cache the background
-    plt.ion()
-    plt.show()
-    # live tracking
-    # copying the current background from the figure
+    ax.coastlines()
+    ax.add_feature(cfeature.BORDERS, linestyle=':')
+    ax.plot(lon, lat, marker='o', color='red', markersize=8, transform=ccrs.PlateCarree())
+    ax.set_title('Live ISS Position')
+    return fig
+
+# --- Streamlit App ---
+st.set_page_config(page_title="ISS Tracker", layout="centered")
+st.title("🛰️ International Space Station Live Tracker")
+st.write("This app shows the live position of the ISS, updating every few seconds.")
+
+# Refresh interval input
+interval = st.slider("Update interval (seconds)", min_value=5, max_value=60, value=10)
+
+# Start button
+if st.button("Start Tracking"):
+    placeholder = st.empty()
     while True:
-        time.sleep(5)  # updating info every 5 seconds
-        # placing the ISS as a mark on the map
-        # fetching the location of the ISS by using Open-Notify
-        request = urlopen("http://api.open-notify.org/iss-now.json")
-        # object contains JSON object with a success or failure message, timestap,
-        # latitude and longitude of the ISS
-        # json library reads the information into the dictionary format and then
-        # python accesses information
-        obj = json.loads(request.read())
-        # print(obj['timestamp'])
-        point = plt.plot([float(obj['iss_position']['longitude'])],
-             [float(obj['iss_position']['latitude'])],
-             color='red', marker='x', markersize=6, transform=ccrs.PlateCarree(),)
-        plt.draw()
-        if doblit:
-            fig.canvas.restore_region(background)  # restore background
-            fig.canvas.blit(ax.bbox)  # fill in the axes rectangle
-        else:
-            fig.canvas.draw()  # redraw everything
-        plt.pause(0.005)
-        for p in point:
-            p.remove()
-
-
-if __name__ == '__main__':
-    draw_iss(doblit=True)
+        lat, lon, timestamp = get_iss_location()
+        if lat is not None and lon is not None:
+            with placeholder.container():
+                st.markdown(f"**Last updated**: {time.ctime(timestamp)}")
+                st.markdown(f"**Latitude**: `{lat}`  |  **Longitude**: `{lon}`")
+                fig = plot_iss_location(lat, lon)
+                st.pyplot(fig)
+        time.sleep(interval)
+        # required to break loop with rerun (e.g., manual stop or refresh)
+        if st.session_state.get("stop", False):
+            break
